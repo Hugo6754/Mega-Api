@@ -8,6 +8,15 @@ const API_KEYS = [
 ].filter(Boolean);
 
 module.exports = async function handler(req, res) {
+  // Allow requests from anywhere
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Only POST requests allowed' });
   }
@@ -19,7 +28,6 @@ module.exports = async function handler(req, res) {
 
   let lastError = null;
 
-  // Try Key 1; if rate-limited (429), it automatically jumps to Key 2, Key 3, etc.
   for (let i = 0; i < API_KEYS.length; i++) {
     const apiKey = API_KEYS[i];
 
@@ -28,6 +36,11 @@ module.exports = async function handler(req, res) {
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
+        config: {
+          thinkingConfig: {
+            thinkingBudget: 0, // Shuts off thinking delay for instant answers
+          },
+        },
       });
 
       return res.status(200).json({
@@ -38,13 +51,12 @@ module.exports = async function handler(req, res) {
     } catch (error) {
       lastError = error;
 
-      // If it hits rate limits, try the next key
+      // If key hits rate limit (429), fall back to next key
       if (error.status === 429 || error.message?.includes('429')) {
         console.warn(`Key #${i + 1} hit quota. Trying Key #${i + 2}...`);
         continue;
       }
 
-      // Any other error (e.g. invalid syntax) stops immediately
       break;
     }
   }
