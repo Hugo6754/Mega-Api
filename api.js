@@ -1,14 +1,13 @@
-import { GoogleGenAI } from '@google/genai';
+const { GoogleGenAI } = require('@google/genai');
 
-// Add your keys in Vercel environment variables (or test locally)
 const API_KEYS = [
   process.env.GEMINI_KEY_1,
   process.env.GEMINI_KEY_2,
   process.env.GEMINI_KEY_3,
   process.env.GEMINI_KEY_4,
-].filter(Boolean); // removes empty keys
+].filter(Boolean);
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Only POST requests allowed' });
   }
@@ -20,18 +19,17 @@ export default async function handler(req, res) {
 
   let lastError = null;
 
-  // Loop through your keys in order
+  // Try Key 1; if rate-limited (429), it automatically jumps to Key 2, Key 3, etc.
   for (let i = 0; i < API_KEYS.length; i++) {
     const apiKey = API_KEYS[i];
 
     try {
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: 'gemini-3.5-flash-lite',
+        model: 'gemini-2.5-flash',
         contents: prompt,
       });
 
-      // Return the result and which key was used
       return res.status(200).json({
         success: true,
         keyUsedIndex: i + 1,
@@ -40,20 +38,19 @@ export default async function handler(req, res) {
     } catch (error) {
       lastError = error;
 
-      // If error is rate limit (429), loop continues to next key
+      // If it hits rate limits, try the next key
       if (error.status === 429 || error.message?.includes('429')) {
-        console.warn(`Key #${i + 1} hit rate limit (429). Switching to Key #${i + 2}...`);
+        console.warn(`Key #${i + 1} hit quota. Trying Key #${i + 2}...`);
         continue;
       }
 
-      // If it's another error (e.g. invalid prompt), break early
+      // Any other error (e.g. invalid syntax) stops immediately
       break;
     }
   }
 
-  // If all keys failed
   return res.status(500).json({
-    error: 'All API keys exhausted or encountered an error.',
+    error: 'All API keys failed or were exhausted',
     details: lastError?.message || lastError,
   });
-}
+};
